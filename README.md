@@ -73,6 +73,25 @@ Or run commands without activating:
 conda run -n aml python -m pip install -r requirements.txt
 ```
 
+
+## Google Earth Engine Credentials
+
+Create a local credentials file for the Earth Engine project id. This file is ignored by Git.
+
+```powershell
+Copy-Item config\gee_credentials.example.json config\gee_credentials.json
+```
+
+Edit `config\gee_credentials.json` and set:
+
+```json
+{
+  "project_id": "your-gee-project-id"
+}
+```
+
+`02a_fetch_gee_observations.ipynb` also accepts `GEE_PROJECT_ID` from the environment, but the local credentials file avoids hardcoding the project id in notebooks.
+
 ## Pull Dataset from Hugging Face
 
 Download the dataset into the local `data/` folder:

@@ -24,6 +24,7 @@ ERA5_DATASET = "ECMWF/ERA5_LAND/DAILY_AGGR"
 SRTM_DATASET = "USGS/SRTMGL1_003"
 DYNAMICWORLD_DATASET = "GOOGLE/DYNAMICWORLD/V1"
 JRC_WATER_DATASET = "JRC/GSW1_4/GlobalSurfaceWater"
+DEFAULT_GEE_CREDENTIALS_PATH = Path("config") / "gee_credentials.json"
 
 ID_COLUMNS = ["sample_id", "label", "latitude", "longitude", "frame_index", "acquisition_date"]
 OBSERVATION_COLUMNS = ID_COLUMNS + [
@@ -66,6 +67,7 @@ class FeatureExtractionConfig:
     """Settings for slow Google Earth Engine observation fetching."""
 
     gee_project_id: str | None = None
+    gee_credentials_path: str | None = None
     data_dir: str = "data"
     sample_index_csv: str = "data/processed/sample_index.csv"
     buffer_radius_m: int = 1000
@@ -82,7 +84,14 @@ class FeatureExtractionConfig:
 
     @property
     def project_id(self) -> str | None:
-        return self.gee_project_id or os.environ.get("GEE_PROJECT_ID") or None
+        if self.gee_project_id:
+            return self.gee_project_id
+        project_root = project_root_from_sample_index(self.sample_index_csv)
+        return load_gee_project_id(
+            self.gee_credentials_path or DEFAULT_GEE_CREDENTIALS_PATH,
+            required=False,
+            project_root=project_root,
+        )
 
 @dataclass(frozen=True)
 class FeatureEngineeringConfig:
@@ -97,12 +106,12 @@ class FeatureEngineeringConfig:
     epsilon: float = 1e-6
 
 
-def initialize_earth_engine(project_id: str | None = None):
+def initialize_earth_engine(project_id: str | None = None, credentials_path: str | Path | None = None):
     """Authenticate and initialize the Earth Engine Python API."""
 
     import ee
 
-    resolved_project = project_id or os.environ.get("GEE_PROJECT_ID") or None
+    resolved_project = project_id or load_gee_project_id(credentials_path, required=False)
     try:
         if resolved_project:
             ee.Initialize(project=resolved_project)
@@ -161,6 +170,45 @@ def display_project_path(path: str | Path, project_root: str | Path | None = Non
     if project_root is None:
         project_root = Path.cwd()
     return project_relative_path(resolve_project_path(path, project_root), project_root)
+
+
+def load_gee_project_id(
+    credentials_path: str | Path | None = DEFAULT_GEE_CREDENTIALS_PATH,
+    *,
+    env_var: str = "GEE_PROJECT_ID",
+    required: bool = True,
+    project_root: str | Path | None = None,
+) -> str | None:
+    """Load the Earth Engine project id from env or an ignored JSON file."""
+
+    env_value = os.environ.get(env_var, "").strip()
+    if env_value:
+        return env_value
+
+    root = Path(project_root).resolve() if project_root is not None else Path.cwd().resolve()
+    credentials_file = resolve_project_path(credentials_path or DEFAULT_GEE_CREDENTIALS_PATH, root)
+    if not credentials_file.exists():
+        if required:
+            safe_path = display_project_path(credentials_file, root)
+            raise FileNotFoundError(
+                f"Missing GEE credentials file: {safe_path}. "
+                "Create it from config/gee_credentials.example.json or set GEE_PROJECT_ID."
+            )
+        return None
+
+    try:
+        credentials = json.loads(credentials_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        safe_path = display_project_path(credentials_file, root)
+        raise ValueError(f"Invalid GEE credentials JSON: {safe_path}") from exc
+
+    project_id = str(credentials.get("project_id") or credentials.get("gee_project_id") or "").strip()
+    if project_id:
+        return project_id
+    if required:
+        safe_path = display_project_path(credentials_file, root)
+        raise ValueError(f"GEE credentials file must contain project_id: {safe_path}")
+    return None
 
 
 def load_sample_index(path: str | Path) -> pd.DataFrame:

@@ -25,6 +25,9 @@ env/
 .env
 *.env
 secrets/
+.credential
+config/gee_credentials.json
+config/*.local.json
 
 # Editor and OS files
 .vscode/
